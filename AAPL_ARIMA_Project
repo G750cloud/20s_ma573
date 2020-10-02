@@ -1,0 +1,111 @@
+import numpy as np
+import pandas as pd
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns 
+import itertools
+from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.arima_model import ARIMA
+from statsmodels.graphics.api import qqplot
+
+#Input AAPL Log Return Data#
+data = pd.read_csv('C:/Users/Jing Guo/Desktop/AAPL.csv',index_col=0)
+data.head()
+data.index.sort_values()
+data.index = pd.to_datetime(data.index, format="%Y/%m/%d")
+print(data)
+data_final = data.drop(['Open','High','Low','Close','Adj Close','Volume','Gross Return','Net Retrun'],axis=1)
+print(data_final)
+data_final = pd.Series(data_final['log Return'])
+print(type(data_final))
+print(data_final)
+
+#Define the cheking stationarity function#
+def check_stationarity(data):
+    roll_mean = data.rolling(20).mean() #Calculate rolling mean and rolling variance#
+    roll_std = data.rolling(5).std()
+    
+    fig = plt.figure(figsize=(20,10))  #Plot log return rolling mean and rolling variance graph#
+    plt.subplot(211)
+    plt.plot(data,color='black',label='Log Return')
+    plt.plot(roll_mean,color='red',label='20 days Log Return Mean')
+    plt.legend()
+    plt.subplot(212)
+    plt.plot(roll_std,color='green',label='5 days Log Return Std Deviation')
+    
+    print('Stationarity Test\n')       #Dickey Filer Stationarity Test#
+    test = adfuller(data,regresults=False)
+    print(test)
+    result = pd.Series(test[0:4],index=['Test Statustic','p-value','# of lags','# of obs'])
+    print(result)
+    for k,v in test[4].items():
+        print('Critical value at %s: %1.5f' %(k,v))
+
+#Check original Log Return Series Stationarity#
+check_stationarity(data_final)
+
+#Check one time difference Log Return Stationarity(if original time series is not stationary)#
+data_final_diff = data_final-data_final.shift()
+data_final_diff.dropna(inplace=True)
+check_stationarity(data_final_diff)
+
+#Check two time difference Log Return Stationarity(if the first difference is not stationary)# 
+data_final_diff2 = data_final-2*data_final.shift()-data_final.shift(2)
+data_final_diff2.dropna(inplace=True)
+check_stationarity(data_final_diff2)
+
+#Plot ACF function and Pacf Function#
+from statsmodels.tsa.stattools import acf,pacf
+data_acf = acf(data_final)
+data_pacf = pacf(data_final)
+import statsmodels.api as sm
+fig1 = plt.figure(figsize=(20,10))
+ax1 = fig1.add_subplot(211)
+fig1 = sm.graphics.tsa.plot_acf(data_acf,ax=ax1)
+ax2 = fig1.add_subplot(212)
+fig1 = sm.graphics.tsa.plot_pacf(data_pacf,ax=ax2)
+
+#Create ARIMA Model and predict#
+ARIMA = ARIMA(data_final,(2,0,2))                                  ####Change ARIMA model parameter here manually!!!!#####
+fit_ARIMA = ARIMA.fit(full_output=True)
+predictions = ARIMA.predict(fit_ARIMA.params,start=247,end=250)    ####Change predicted time variable here manually!!!!#####
+print(fit_ARIMA.summary())
+predictions
+print(fit_ARIMA.predict(start=247,end=250))                        ####Change predicted time variable here manually!!!!#####
+
+
+
+# Element-wise addition back to original time series
+data_final_trans = pd.Series(fit_ARIMA.fittedvalues, copy=True)
+# Last 5 rows of fitted values
+data_final_trans.tail()
+# Last 5 rows of original time series
+data_final.tail()
+# Plot of orignal data and fitted values
+plt.figure(figsize=(20,10))
+plt.plot(data_final, color='black', label='Original data')
+plt.plot(data_final_trans, color='red', label='Fitted Values')
+plt.legend()
+#Calculate residual#
+x = data_final.values
+y = data_final_trans.values
+residual = x-y
+# Trend of error
+plt.figure(figsize=(20,8))
+plt.plot(residual, color='red', label='Residual')
+plt.axhline(residual.mean(), color='black', label='Residual avg line')
+plt.legend()
+#QQplot to test residual stationarity#
+fig66 = plt.figure(figsize=(12,8))
+ax66 = fig66.add_subplot(111)
+fig66 = qqplot(residual, line='q', ax=ax66, fit=True)
+#Durbin-Watson method to test the autocorrelation of the variance#
+print(sm.stats.durbin_watson(fit_ARIMA.resid.values))
+#Plot Autocorrelation of residuals#
+data_acf = acf(residual)
+data_pacf = pacf(residual)
+fig77 = plt.figure(figsize=(20,10))
+ax77 = fig77.add_subplot(211)
+fig77 = sm.graphics.tsa.plot_acf(data_acf,ax=ax77)
+ax88 = fig77.add_subplot(212)
+fig77 = sm.graphics.tsa.plot_pacf(data_pacf,ax=ax88)
